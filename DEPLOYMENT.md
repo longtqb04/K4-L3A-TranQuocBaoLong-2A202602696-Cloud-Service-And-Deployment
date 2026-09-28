@@ -1,101 +1,65 @@
 # Thông Tin Deploy — Checkpoint 5
 
-> Điền file này sau khi deploy xong. `pytest tests/test_cp5.py` đọc file này
-> để tìm địa chỉ service của bạn và gọi thử.
->
-> **Chỉ ghi TÊN biến môi trường, tuyệt đối không dán giá trị API key vào đây.**
-> Repo này công khai — dán khóa vào là mất khóa.
-
-## Thông Tin Học Viên
+## Thông tin học viên
 
 | Mục | Nội dung |
-|-----|----------|
+|---|---|
 | Họ và tên | Trần Quốc Bảo Long |
 | Mã học viên | 2A202602696 |
-| Repo | (điền link repo K4-L3A-DAY12-HoVaTen-MSSV-CloudServicesAndDeployment) |
+| Repo | https://github.com/longtqb04/K4-L3A-TranQuocBaoLong-2A202602696-Cloud-Service-And-Deployment |
+| Public URL | https://k4-l3a-tranquocbaolong-2a202602696-cloud-service-production.up.railway.app |
+| Platform | Railway |
+| Ngày triển khai và kiểm tra | 28/09/2026 |
+| Project | magnificent-empathy |
+| Môi trường | production, US West, 1 replica agent + Redis |
 
-## Service
+## Cấu hình thực tế
 
-| Mục | Nội dung |
-|-----|----------|
-| Public URL | https://TODO-thay-bang-url-that.up.railway.app |
-| Platform | Railway / Render / Cloud Run — (điền platform bạn dùng) |
-| Ngày deploy | (điền ngày) |
+Service kết nối GitHub branch main, bản code 85b266a (Completed CP1–4), build bằng Dockerfile. Đã tạo public domain trỏ cổng 8080, tạo Redis và triển khai lại cấu hình kết nối. Các sửa code/Docker Compose mới trong workspace chưa được push lên GitHub, nên chưa nằm trong bản cloud này.
 
-## Biến Môi Trường Đã Set Trên Cloud
+| Biến | Nguồn |
+|---|---|
+| `PORT` | Railway cấp; domain trỏ port 8080 |
+| `AGENT_API_KEY` | Secret đã đặt sẵn trên dashboard; request có xác thực đã thành công, không ghi giá trị |
+| `REDIS_URL` | Tham chiếu `${{Redis.REDIS_URL}}` từ Redis service cùng project |
+| `RATE_LIMIT_PER_MINUTE` | Biến dashboard; phép thử xác nhận 10 request/phút |
+| `MONTHLY_BUDGET_USD` | Biến dashboard; cấu hình bài lab 10.0 USD, không thử tiêu hết ngân sách cloud |
+| `LOG_LEVEL` | Biến dashboard; cấu hình bài lab INFO |
 
-Ghi tên biến và **nguồn giá trị**, không ghi giá trị:
+Healthcheck Path đặt `/health` trên dashboard. Đã tắt Wait for CI vì repository chưa có workflow; chưa triển khai CI/CD bonus. Railway hiện thông báo Config as Code đã deprecated và không nhận service mới chưa từng dùng từ 28/08/2026, vì vậy không mặc định coi mọi giá trị trong railway.toml đã được áp dụng. [Tài liệu Railway](https://docs.railway.com/config-as-code/reference).
 
-| Biến | Đã set | Ghi chú |
-|------|--------|---------|
-| `PORT` | ✅ | platform tự gán |
-| `AGENT_API_KEY` | ✅ | đặt trong dashboard, không nằm trong repo |
-| `REDIS_URL` | ✅ | (điền: Redis add-on của platform / Upstash / ...) |
-| `RATE_LIMIT_PER_MINUTE` | ✅ | 10 |
-| `MONTHLY_BUDGET_USD` | ✅ | 10.0 |
-| `LOG_LEVEL` | ✅ | INFO |
+## Kết quả gọi API thật
 
-## Lệnh Kiểm Tra
+Kiểm tra qua HTTPS bằng HTTP client, không in khóa vào output:
 
-Thay `<URL>` bằng Public URL ở trên:
-
-```bash
-# 1. Liveness — mong đợi 200 {"status":"ok"}
-curl -i <URL>/health
-
-# 2. Readiness — mong đợi 200 {"status":"ready"} (đã nối được Redis)
-curl -i <URL>/ready
-
-# 3. Không có API key — mong đợi 401
-curl -i -X POST <URL>/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Hello"}'
-
-# 4. Có API key — mong đợi 200 kèm câu trả lời
-curl -i -X POST <URL>/ask \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $AGENT_API_KEY" \
-  -H "X-User-Id: sv-test" \
-  -d '{"question":"Deploy là gì?"}'
-
-# 5. Rate limit — gọi 15 lần, những lần cuối phải trả 429
-for i in $(seq 1 15); do
-  curl -s -o /dev/null -w "%{http_code} " -X POST <URL>/ask \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $AGENT_API_KEY" \
-    -H "X-User-Id: sv-test" \
-    -d '{"question":"test"}'
-done; echo
+```text
+GET /health -> 200 {"status":"ok","service":"day12-agent","version":"1.0.0"}
+GET /ready  -> 200 {"status":"ready","redis":true}
+POST /ask, không có key -> 401 {"detail":"invalid or missing API key"}
+POST /ask, có key, user exercise-88396e4f:
+  Request 1..10: 200
+  history_length: 0, 2, 4, 6, 8, 10, 12, 14, 16, 18
+  Request 11..12: 429 {"detail":"rate limit exceeded"}
+  Request 1: tokens_in=4, tokens_out=38, cost_usd=0.0000234
 ```
 
-## Kết Quả Chạy Thật
+LLM là mock; cost_usd là chi phí mô phỏng. Hạ tầng Railway dùng tài khoản Trial hiện có.
 
-Dán output của các lệnh trên vào đây:
+## Lỗi triển khai đã sửa
 
+Trước khi sửa, /health trả 200 nhưng /ready trả 503 với redis:false. Biến Redis đang trỏ localhost:6379, trong khi project chưa có Redis service. Đã tạo Redis, dùng tham chiếu kết nối nội bộ và triển khai lại; /ready sau đó trả 200. Xem thêm câu 10 trong exercises.md.
+
+## Tái kiểm tra
+
+```powershell
+Invoke-RestMethod https://k4-l3a-tranquocbaolong-2a202602696-cloud-service-production.up.railway.app/health
+Invoke-RestMethod https://k4-l3a-tranquocbaolong-2a202602696-cloud-service-production.up.railway.app/ready
 ```
-(điền output)
-```
 
-## Ảnh Chụp Màn Hình
+Để thử /ask, dùng scripts/observe.py với OBSERVE_URL là Public URL và AGENT_API_KEY từ môi trường. Script tạo user thử riêng và không in secret.
 
-Đặt ảnh trong thư mục `screenshots/`:
+## Bằng chứng local
 
-- `screenshots/dashboard.png` — trang quản lý service trên platform
-- `screenshots/health.png` — kết quả gọi `/health` từ trình duyệt hoặc curl
+Ảnh dashboard triển khai thành công: [screenshots/dashboard.png](screenshots/dashboard.png). Trình duyệt tích hợp chặn mở URL /health (`net::ERR_BLOCKED_BY_CLIENT`), nên chưa có ảnh trình duyệt cho endpoint này; kết quả HTTP và kiểm thử CP5 ở trên đã được chạy thật. CP5: 9 passed, 4 skipped (fallback).
 
----
-
-## Nếu Dùng Phương Án Dự Phòng
-
-Không đăng ký được tài khoản cloud? Vẫn nộp được bài, nhưng CP5 tối đa 60% điểm:
-
-1. Đặt `LOCAL_FALLBACK=true` trong `.env`
-2. Chạy `docker compose up -d` rồi kiểm tra `docker compose ps`
-3. Chụp màn hình vào `screenshots/`
-4. Chạy `pytest tests/test_cp5.py -v` — bộ test sẽ tự chuyển sang kiểm tra
-   `http://localhost:8000`
-5. Ghi rõ lý do không deploy được vào phần dưới đây:
-
-```
-(điền lý do nếu dùng phương án dự phòng, ngược lại xóa mục này)
-```
+[evidence/observations.md](evidence/observations.md), [log](evidence/local-agent.txt), [trạng thái stack](evidence/local-stack.txt) ghi kết quả Docker 3 replica, số đo image và kiểm tra bổ sung. Local chạy qua Nginx ở http://localhost:8000; không dùng fallback cho CP5 vì cloud đã hoạt động.
